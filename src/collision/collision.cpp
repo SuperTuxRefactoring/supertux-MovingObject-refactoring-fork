@@ -14,48 +14,30 @@
 //  You should have received a copy of the GNU General Public License
 //  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "collision/collision.hpp"
-
 #include <algorithm>
 
-#include "math/aatriangle.hpp"
-#include "math/rectf.hpp"
+#include "../math/aatriangle.hpp"
+#include "../math/rectf.hpp"
+#include "constraints.hpp"
+#include "collision.hpp"
 
 namespace collision {
 
-void Constraints::merge_constraints(const Constraints& other)
-{
-  constrain_left(other.position_left);
-  constrain_right(other.position_right);
-  constrain_top(other.position_top);
-  constrain_bottom(other.position_bottom);
-
-  hit.left |= other.hit.left;
-  hit.right |= other.hit.right;
-  hit.top |= other.hit.top;
-  hit.bottom |= other.hit.bottom;
-  hit.crush |= other.hit.crush;
-}
-
 //---------------------------------------------------------------------------
 
-namespace {
-inline void makePlane(const Vector& p1, const Vector& p2, Vector& n, float& c)
+/*inline void makePlane(const Vector& p1, const Vector& p2, Vector& n, float& c)
 {
   n = Vector(p2.y - p1.y, p1.x - p2.x);
   c = -glm::dot(p2, n);
   float nval = glm::length(n);
   n /= nval;
   c /= nval;
-}
+}*/
 
-}
-
-bool rectangle_aatriangle(Constraints* constraints, const Rectf& rect,
-                          const AATriangle& triangle)
-{
-  bool dummy;
-  return rectangle_aatriangle(constraints, rect, triangle, dummy);
+Vector make_normal(const Vector& p1, const Vector& p2){
+  Vector normal = Vector(p2.y - p1.y, p1.x - p2.x);
+  normal/=glm::length(normal);
+  return normal;
 }
 
 bool rectangle_aatriangle(Constraints* constraints, const Rectf& rect,
@@ -67,7 +49,8 @@ bool rectangle_aatriangle(Constraints* constraints, const Rectf& rect,
 
   Vector normal(0.0f, 0.0f);
   float c = 0.0;
-  Vector p1(0.0f, 0.0f);
+  Vector p_hit_box(0.0f, 0.0f);
+  Vector p_on_slope(0.0f,0.0f);
   Rectf area;
   switch (triangle.dir & AATriangle::DEFORM_MASK) {
     case 0:
@@ -96,29 +79,32 @@ bool rectangle_aatriangle(Constraints* constraints, const Rectf& rect,
 
   switch (triangle.dir & AATriangle::DIRECTION_MASK) {
     case AATriangle::SOUTHWEST:
-      p1 = Vector(rect.get_left(), rect.get_bottom());
-      makePlane(area.p1(), area.p2(), normal, c);
+      p_hit_box = Vector(rect.get_left(), rect.get_bottom());
+      p_on_slope = area.p1();
+      normal = make_normal(area.p1(), area.p2());
       break;
     case AATriangle::NORTHEAST:
-      p1 = Vector(rect.get_right(), rect.get_top());
-      makePlane(area.p2(), area.p1(), normal, c);
+      p_hit_box = Vector(rect.get_right(), rect.get_top());
+      p_on_slope = area.p2();
+      normal = make_normal(area.p2(), area.p1());
       break;
     case AATriangle::SOUTHEAST:
-      p1 = rect.p2();
-      makePlane(Vector(area.get_left(), area.get_bottom()),
-                Vector(area.get_right(), area.get_top()), normal, c);
+      p_hit_box = rect.p2();
+      p_on_slope = Vector(area.get_left(), area.get_bottom());
+      normal = make_normal(Vector(area.get_left(), area.get_bottom()),
+                Vector(area.get_right(), area.get_top()));
       break;
     case AATriangle::NORTHWEST:
-      p1 = rect.p1();
-      makePlane(Vector(area.get_right(), area.get_top()),
-                Vector(area.get_left(), area.get_bottom()), normal, c);
+      p_hit_box = rect.p1();
+      p_on_slope = Vector(area.get_right(), area.get_top());
+      normal = make_normal(Vector(area.get_right(), area.get_top()),
+                Vector(area.get_left(), area.get_bottom()));
       break;
     default:
       assert(false);
   }
 
-  float n_p1 = -glm::dot(normal, p1);
-  float depth = n_p1 - c;
+  float depth = -glm::dot(normal, p_hit_box-p_on_slope);
   if (depth < 0)
     return false;
 
@@ -130,8 +116,8 @@ bool rectangle_aatriangle(Constraints* constraints, const Rectf& rect,
   Vector outvec = normal * (depth + 0.2f);
 
   const float RDELTA = 3;
-  if (p1.x < area.get_left() - RDELTA || p1.x > area.get_right() + RDELTA
-     || p1.y < area.get_top() - RDELTA || p1.y > area.get_bottom() + RDELTA) {
+  if (p_hit_box.x < area.get_left() - RDELTA || p_hit_box.x > area.get_right() + RDELTA
+     || p_hit_box.y < area.get_top() - RDELTA || p_hit_box.y > area.get_bottom() + RDELTA) {
     set_rectangle_rectangle_constraints(constraints, rect, area);
   } else {
     if (outvec.x < 0) {
